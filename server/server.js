@@ -11,14 +11,25 @@ import { GoogleGenAI } from "@google/genai";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load .env file from the server directory
-dotenv.config({ path: resolve(__dirname, ".env") });
+// Load .env file from root directory (for Render deployment)
+dotenv.config({ path: resolve(__dirname, "..", ".env") });
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" })); // for base64 image
 
-const ai = new GoogleGenAI({});
+// Serve static files from the React app build
+const distPath = resolve(__dirname, "..", "dist");
+app.use(express.static(distPath));
+
+// Initialize Google GenAI with API key from environment
+const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  console.warn(
+    "Warning: GOOGLE_API_KEY or GEMINI_API_KEY not found in environment variables"
+  );
+}
+const ai = new GoogleGenAI({ apiKey });
 
 app.post("/api/vision/ocr", async (req, res) => {
   try {
@@ -42,6 +53,10 @@ Your task is to extract a structured list of products from ALL images with their
 - The handwritten note next to the item
 - Total Item QTY
 - An object with the box number and the quantity (if the item is packed in multiple boxes, the quantity will be split between the boxes).
+
+Sometimes, the user may cross out the qty and write a new qty. In this case, use the new qty that was handwritten and ignore the printed qty that has been crossed out.
+
+Sometimes, the user may  have crossed out the qty and not written a new qty. In this case, leave the qty at "".
 
 In addition to the above, there will be notes on a page indicating the weight and dimensions of the boxes. Record this in another object called Box Dimensions. Combine all box dimensions from all images.
 
@@ -135,6 +150,12 @@ Ignore unrelated text or markings. If an ASIN is present but the box or quantity
     console.error(err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// The "catchall" handler: for any request that doesn't
+// match an API route, send back React's index.html file.
+app.get("*", (req, res) => {
+  res.sendFile(resolve(distPath, "index.html"));
 });
 
 const port = process.env.PORT || 4000;
