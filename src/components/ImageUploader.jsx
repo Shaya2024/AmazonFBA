@@ -364,13 +364,19 @@ export default function ImageUploader() {
               component="span"
               style={{ marginRight: "1rem" }}
             >
-              {excelFileName || "Choose Excel/CSV File"}
+              Choose Excel/CSV File
             </Button>
           </label>
           {excelFileName && (
-            <span style={{ color: "green", marginLeft: "1rem" }}>
-              ✓ {excelFileName}
-            </span>
+            <div
+              style={{
+                marginTop: "0.5rem",
+                fontSize: "0.75rem",
+                color: "#666",
+              }}
+            >
+              {excelFileName}
+            </div>
           )}
         </Card>
       </Box>
@@ -395,13 +401,21 @@ export default function ImageUploader() {
               component="span"
               style={{ marginRight: "1rem" }}
             >
-              Choose Images (Multiple)
+              Choose Images
             </Button>
           </label>
           {images.length > 0 && (
-            <span style={{ color: "green", marginLeft: "1rem" }}>
-              ✓ {images.length} image{images.length !== 1 ? "s" : ""} selected
-            </span>
+            <div
+              style={{
+                marginTop: "0.5rem",
+                fontSize: "0.75rem",
+                color: "#666",
+              }}
+            >
+              {images.map((image, index) => (
+                <div key={index}>{image.name}</div>
+              ))}
+            </div>
           )}
           {previews.length > 0 && (
             <div style={{ marginTop: "1rem" }}>
@@ -428,8 +442,8 @@ export default function ImageUploader() {
                       src={preview}
                       alt={`Preview ${index + 1}`}
                       style={{
-                        maxWidth: "200px",
-                        maxHeight: "200px",
+                        maxWidth: "150px",
+                        maxHeight: "150px",
                         border: "1px solid #ccc",
                         borderRadius: "4px",
                       }}
@@ -440,7 +454,7 @@ export default function ImageUploader() {
                         position: "absolute",
                         top: "-10px",
                         right: "-10px",
-                        background: "red",
+                        background: "#666",
                         color: "white",
                         border: "none",
                         borderRadius: "50%",
