@@ -139,8 +139,11 @@ function findProductHeaders(worksheet) {
         columnIndices.fnsku = col;
       } else if (cellValue === "quantity") {
         columnIndices.quantity = col;
-      } else if (cellValue.includes("box") && cellValue.includes("units")) {
-        // Extract box number from "Box 1 units", "Box 2 units", etc.
+      } else if (
+        cellValue.includes("box") &&
+        (cellValue.includes("units") || cellValue.includes("quantity"))
+      ) {
+        // Extract box number from "Box 1 units", "Box 2 units", "Box 1 quantity", "Box 2 quantity", etc.
         const match = cellValue.match(/box\s*(\d+)/i);
         if (match) {
           const boxNum = parseInt(match[1], 10);

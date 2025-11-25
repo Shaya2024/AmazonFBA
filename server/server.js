@@ -6,13 +6,32 @@ import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
+import sharp from "sharp";
 
 // Get the directory of the current module (server folder)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load .env file from root directory (for Render deployment)
-dotenv.config({ path: resolve(__dirname, "..", ".env") });
+// Load .env file from server directory
+const envPath = resolve(__dirname, ".env");
+const result = dotenv.config({ path: envPath });
+
+// Debug: Log if .env file was loaded
+if (result.error) {
+  console.warn(`Warning: Could not load .env file from ${envPath}`);
+  console.warn(`Error: ${result.error.message}`);
+  // Try loading from root directory as fallback
+  const rootEnvPath = resolve(__dirname, "..", ".env");
+  dotenv.config({ path: rootEnvPath });
+} else {
+  console.log(`Loaded .env file from ${envPath}`);
+}
+
+// Prevent Google Cloud from trying to use default credentials
+// Set to empty string to disable default credentials lookup
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "";
+}
 
 const app = express();
 app.use(cors());
@@ -23,16 +42,60 @@ const distPath = resolve(__dirname, "..", "dist");
 app.use(express.static(distPath));
 
 // Initialize Google GenAI with API key from environment
-const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
+  console.warn("Warning: GEMINI_API_KEY not found in environment variables");
+  console.warn(`Current working directory: ${process.cwd()}`);
+  console.warn(`Looking for .env at: ${envPath}`);
   console.warn(
-    "Warning: GOOGLE_API_KEY or GEMINI_API_KEY not found in environment variables"
+    "Available env vars:",
+    Object.keys(process.env)
+      .filter((k) => k.includes("GEMINI") || k.includes("GOOGLE"))
+      .join(", ") || "none"
   );
 }
-const ai = new GoogleGenAI({ apiKey });
+// Only initialize if API key is available
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+
+// Function to resize image from base64
+async function resizeImage(base64String, maxDimension = 2048) {
+  try {
+    // Remove data URL prefix if present (e.g., "data:image/jpeg;base64,")
+    const base64Data = base64String.includes(",")
+      ? base64String.split(",")[1]
+      : base64String;
+
+    // Convert base64 to buffer
+    const imageBuffer = Buffer.from(base64Data, "base64");
+
+    // Resize image using sharp
+    const resizedBuffer = await sharp(imageBuffer)
+      .resize(maxDimension, maxDimension, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    // Convert back to base64
+    return resizedBuffer.toString("base64");
+  } catch (error) {
+    console.error("Error resizing image:", error);
+    // Return original if resize fails
+    return base64String;
+  }
+}
 
 app.post("/api/vision/ocr", async (req, res) => {
   try {
+    // Ensure API key is available
+    if (!apiKey || !ai) {
+      return res.status(500).json({
+        error:
+          "API key not configured. Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable.",
+      });
+    }
+
     const { imagesBase64 } = req.body;
     if (
       !imagesBase64 ||
@@ -45,8 +108,14 @@ app.post("/api/vision/ocr", async (req, res) => {
       });
     }
 
+    // Resize all images before processing
+    console.log(`Resizing ${imagesBase64.length} image(s)...`);
+    const resizedImages = await Promise.all(
+      imagesBase64.map((img) => resizeImage(img))
+    );
+
     // Build contents array with images and text prompt for Google GenAI
-    const systemPrompt = `You will receive ${imagesBase64.length} image(s) containing tables of rows of products with their ASIN, FNSKU and QTY. (there might be more columns, you can ignore them). Next to each row, there is a handwritten note indicating which box the item will be packed in and how many units are going into that box. For example, if the QTY is 18, it might say next to it "Box 2" which would indicate all 18 units will be packed in box 2. If it is written "Box 2 x4", it would indicate 4 units will be packed in box 2. Or it might say Box 2,4 9 each, which would indicate the 18 units will all be in boxes 2 and 4, with 9 units in each box. These are just examples, there might be other variations - use your best judgment.
+    const systemPrompt = `You will receive ${resizedImages.length} image(s) containing tables of rows of products with their ASIN, FNSKU and QTY. (there might be more columns, you can ignore them). Next to each row, there is a handwritten note indicating which box the item will be packed in and how many units are going into that box. For example, if the QTY is 18, it might say next to it "Box 2" which would indicate all 18 units will be packed in box 2. If it is written "Box 2 x4", it would indicate 4 units will be packed in box 2. Or it might say Box 2,4 9 each, which would indicate the 18 units will all be in boxes 2 and 4, with 9 units in each box. These are just examples, there might be other variations - use your best judgment.
 
 Your task is to extract a structured list of products from ALL images with their:
 - ASIN (e.g., B07ECS26RL)
@@ -127,8 +196,8 @@ Ignore unrelated text or markings. If an ASIN is present but the box or quantity
 
     // Build contents array: images first, then text prompt
     const contents = [
-      // Add all images
-      ...imagesBase64.map((imageBase64) => ({
+      // Add all resized images
+      ...resizedImages.map((imageBase64) => ({
         inlineData: {
           mimeType: "image/jpeg",
           data: imageBase64,
@@ -139,7 +208,7 @@ Ignore unrelated text or markings. If an ASIN is present but the box or quantity
     ];
 
     const response = await ai.models.generateContent({
-      model: "models/gemini-3-pro-preview",
+      model: "models/gemini-1.5-flash",
       contents: contents,
     });
 
@@ -147,7 +216,14 @@ Ignore unrelated text or markings. If an ASIN is present but the box or quantity
     console.log(fullText);
     res.json({ fullText });
   } catch (err) {
-    console.error(err);
+    console.error("Error processing images:", err);
+    // Check if it's a credentials error
+    if (err.message && err.message.includes("default credentials")) {
+      return res.status(500).json({
+        error:
+          "Authentication error. Please ensure GOOGLE_API_KEY or GEMINI_API_KEY is set correctly in your environment variables.",
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });
