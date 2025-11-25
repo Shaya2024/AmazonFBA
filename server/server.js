@@ -194,7 +194,7 @@ You must not mispell any ASINs!
 
 Ignore unrelated text or markings. If an ASIN is present but the box or quantity is unclear, return null for those fields. Keep your result accurate and structured.`;
 
-    // Build contents array: images first, then text prompt
+    // Build contents array: images first, then text promp
     const contents = [
       // Add all resized images
       ...resizedImages.map((imageBase64) => ({
@@ -208,7 +208,7 @@ Ignore unrelated text or markings. If an ASIN is present but the box or quantity
     ];
 
     const response = await ai.models.generateContent({
-      model: "models/gemini-1.5-flash",
+      model: "gemini-3-pro-preview",
       contents: contents,
     });
 

@@ -42,7 +42,8 @@ function findDimensionRows(worksheet) {
 
       const cellValue = String(cell.v).toLowerCase().trim();
 
-      if (cellValue.includes("box name")) {
+      // Check for box name (handles both "box name" and "name of box")
+      if (cellValue.includes("box name") || cellValue.includes("name of box")) {
         dimensionRows.boxName = row;
       } else if (cellValue.includes("box weight")) {
         dimensionRows.weight = row;
